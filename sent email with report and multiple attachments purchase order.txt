@@ -1,0 +1,103 @@
+pageextension 50311 purorder extends "Purchase Order"
+{
+    actions
+    {
+        addafter(Print)
+        {
+            action("Send Email")
+            {
+                ApplicationArea = All;
+                Caption = 'Send Email Test', comment = 'NLB="YourLanguageCaption"';
+                Promoted = true;
+                PromotedCategory = Process;
+                PromotedIsBig = true;
+                Image = Email;
+
+                trigger OnAction()
+                var
+                    DocumentAttachment: Record "Document Attachment";
+                    TempBlob: Codeunit "Temp Blob";
+                    EmailMessage: Codeunit "Email Message";
+                    Email: Codeunit Email;
+                    FullFileName: Text;
+                    VendorRec: Record Vendor;
+                    VendorEmailList: List of [Text];
+                    EmailSubject: Text;
+                    CustomerName: Text;
+                    EmailBody: Text;
+                    CheckValue: Text;
+                    CC: list of [text];
+                    BCC: list of [text];
+                    Hello: Label 'Hi';
+                    Text: Label 'We have sent a Purchase Order via E-mail to You. Kindly Check and Confirm.';
+                    PurchaseOrderReport: Report "Standard Purchase - Order";
+                    OutStream: OutStream;
+                    InStream: InStream;
+                    PurchaseHeader: Record "Purchase Header";
+                    VendorName: Text;
+                begin
+
+                    VendorRec.Reset();
+                    VendorRec.SetRange("No.", Rec."Buy-from Vendor No.");
+                    if VendorRec.FindFirst() then
+                        VendorEmailList.Add(LowerCase(VendorRec."E-Mail"));
+
+
+                    Clear(VendorName);
+                    VendorRec.Reset();
+                    VendorRec.SetRange("No.", Rec."Buy-from Vendor No.");
+                    if VendorRec.FindFirst() then
+                        VendorName := VendorRec.Name;
+
+
+                    CheckValue := VendorEmailList.Get(1);
+
+                    if CheckValue <> '' then begin
+                        EmailSubject := Hello;
+                        EmailBody := Hello + ' ' + VendorName + '</br></br>' + Text;
+
+                        EmailMessage.Create(VendorEmailList, EmailSubject, EmailBody, true, CC, BCC);
+
+                        PurchaseHeader.SetRange("Document Type", PurchaseHeader."Document Type"::Order);
+                        PurchaseHeader.SetRange("No.", Rec."No.");
+                        PurchaseHeader.SetRange("Buy-from Vendor No.", Rec."Buy-from Vendor No.");
+                        PurchaseOrderReport.SetTableView(PurchaseHeader);
+
+
+
+                        TempBlob.CreateOutStream(OutStream);
+                        // PurchaseOrderReport.SetTableView(Rec);
+                        PurchaseOrderReport.SaveAs('PurchaseOrder_', ReportFormat::Pdf, OutStream);
+
+
+                        TempBlob.CreateInStream(InStream);
+                        FullFileName := 'PurchaseOrder_' + Rec."No." + '.pdf';
+                        EmailMessage.AddAttachment(FullFileName, 'PDF', InStream);
+
+
+                        DocumentAttachment.Reset();
+                        DocumentAttachment.SetRange("No.", Rec."No.");
+                        if DocumentAttachment.FindSet() then begin
+                            repeat
+                                if DocumentAttachment."Document Reference ID".HasValue then begin
+                                    TempBlob.CreateOutStream(OutStream);
+                                    TempBlob.CreateInStream(InStream);
+                                    FullFileName := DocumentAttachment."File Name" + '.' + DocumentAttachment."File Extension";
+                                    if DocumentAttachment."Document Reference ID".ExportStream(OutStream) then begin
+                                        EmailMessage.AddAttachment(FullFileName, 'PDF', InStream);
+                                    end;
+                                end;
+                            until DocumentAttachment.Next() = 0;
+                        end;
+
+                        Email.Send(EmailMessage, Enum::"Email Scenario"::Default);
+                        Message('Email has been sent.');
+                    end else begin
+                        Message('Sorry, the email has not been defined!');
+                    end;
+                end;
+            }
+        }
+    }
+}
+
